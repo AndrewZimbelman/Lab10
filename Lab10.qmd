@@ -1,0 +1,188 @@
+---
+title: "ESS Lab 10"
+format: 
+  html:
+    self-contained: true
+editor: visual
+author: Andrew Zimbelman
+execute:
+ echo: true 
+---
+
+## Downloading Data
+
+```{r}
+library(tidyverse)
+library(sf)
+library(units)
+library(AOI)
+library(gghighlight)
+library(ggrepel)
+library(knitr)
+library(flextable)
+library(units)
+```
+
+## Question 1
+
+```{r}
+eqdc <- '+proj=eqdc +lat_0=40 +lon_0=-96 +lat_1=20 +lat_2=60 +x_0=0 +y_0=0 +datum=NAD83 +units=km +no_defs'
+boundaries <-aoi_get(state = 'conus')
+country_boundaries <- aoi_get(country = c("MX", "CA", "USA"))
+cities <- readr::read_csv("C:/Users/azout/OneDrive/Documents/my-folder/ESS Labs/ESS Lab 10/Lab10/uscities.csv")
+cities_map <- st_as_sf(cities,
+                       coords = c("lng","lat"),
+                       crs = 4326) |>
+    st_transform(4326)
+
+  cities_map <- cities_map |>
+  filter(!state_name %in% c("Puerto Rico","Alaska","Hawaii"))
+
+
+
+```
+## Question 2 
+### 2.1 Distance to US border
+
+```{r}
+boundary_geom <- boundaries$geometry
+boundary_geom_union <- st_union(boundary_geom)
+boundaries_ml <-st_cast(boundary_geom_union, "MULTILINESTRING")
+US_Boundary_Dist <- cities_map|>
+  select(city, geometry, state_name) |>
+  mutate(Distance = (st_distance(cities_map,boundaries_ml)),
+         Distance = set_units(Distance, "km")) |>
+  arrange(-Distance) |>
+  slice_head(n = 5)
+
+flextable(US_Boundary_Dist)|>
+  set_caption("Cities Farthest From US Borders")
+
+
+```
+
+### 2.2: Distance to State Boundaries
+
+```{r}
+state_bound_geom <- boundaries$geometry
+st_com <- st_combine(state_bound_geom)
+state_bound_ml <- st_cast(st_com, "MULTILINESTRING")
+
+state_dist <- cities_map |>
+  select(state_name, city, geometry) |>
+  mutate(Distance = (st_distance(cities_map,state_bound_ml)),
+         Distance = set_units(Distance, "km")) |>
+  arrange(-Distance) |>
+  slice_head(n = 5)
+  flextable(state_dist) |>
+  set_caption("Top 5 Cities Farthest From State Borders")
+  
+```
+### 2.3: Distance to Mexico 
+```{r}
+mex_bound <- country_boundaries |>
+  filter(name == "Mexico") |>
+  select( name,)
+
+mex_distance <- cities_map |>
+  select(state_name, city, geometry) |>
+  mutate(Distance = st_distance(cities_map, mex_bound),
+         Distance = set_units(Distance, "km")) |>
+  arrange(-Distance) |>
+  slice_head(n = 5)
+flextable(mex_distance) |>
+  set_caption("Cities Farthest From Mexico in the US")
+  
+
+```
+### 2.4: Distance From Canada
+
+```{r}
+can_bound <- country_boundaries |>
+  filter(name == "Canada") |>
+  select( name)
+can_distance <- cities_map |>
+  select(state_name, city, geometry) |>
+  mutate(Distance = st_distance(cities_map, can_bound),
+         Distance = set_units(Distance, "km")) |>
+  arrange(-Distance) |>
+  slice_head(n = 5)
+flextable(can_distance) |>
+  set_caption("Cities Farthest From Canada in the US")
+```
+
+## Question 3 
+
+### 3.1: 10 Largest Cities
+
+```{r}
+
+Largest_Cities <- cities_map |>
+  arrange(-population) |>
+  slice_head(n = 10)
+ggplot()  +
+  geom_sf(data = state_bound_ml) +
+  geom_sf(data = Largest_Cities, aes(size = population))
+```
+
+### 3.2 Cities Farthest From the Border 
+
+```{r}
+state_dist_full <- cities_map |>
+  select(state_name, city, geometry) |>
+  mutate(Distance = (st_distance(cities_map,state_bound_ml)),
+         Distance = set_units(Distance, "km"))
+City_dist <- US_Boundary_Dist |>
+  drop_units()
+ggplot() +
+  geom_sf(data = state_dist_full, size = 0.000001, alpha = 0.2) +
+  geom_sf(data = City_dist, size = 3) +
+  geom_sf(fill = "red")
+  
+    
+
+```
+
+### 3.3 City Distance From State Border
+```{r}
+state_dist_drop <- state_dist |>
+  drop_units()
+ggplot() + 
+  geom_sf(data = state_dist_full, size = 0.0001, alpha = 0.2) +
+  geom_sf(data = state_bound_ml) +
+  geom_sf(data = state_dist_drop, size = 3, alpha = 1) +
+  geom_sf(fill = "red")
+  
+```
+
+
+### 3.4 Equal Distance Highlight 
+
+```{r}
+mex_distance_full <- cities_map |>
+  select(state_name, city, geometry) |>
+  mutate(Distance = st_distance(cities_map, mex_bound),
+         Distance = set_units(Distance, "km")) |>
+  drop_units()
+can_distance_full <- cities_map |>
+  select(state_name,city,geometry) |>
+  mutate(Distance = st_distance(cities_map, can_bound),
+         Distance = set_units(Distance, "km")) |>
+  drop_units()
+eq_dist <- cities_map |>
+  mutate(mex_dist = mex_distance_full$Distance) |>
+  mutate(can_dist = can_distance_full$Distance) |>
+  mutate(obj_dist = abs(can_dist - mex_dist)) |>
+  drop_units()
+pop_city <- eq_dist|>
+  filter(obj_dist <= 100) |>
+  arrange(-population) |>
+  slice_head(n = 5) |>
+  drop_units()
+ggplot() +
+  geom_sf(data = eq_dist, aes(fill = obj_dist), size = 0.1, alpha = 0.5) +
+  scale_color_gradient(low = "blue", high = "red") +
+  gghighlight(obj_dist <= 100) 
+  
+```
+
