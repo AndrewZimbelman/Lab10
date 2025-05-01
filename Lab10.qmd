@@ -41,7 +41,9 @@ cities_map <- st_as_sf(cities,
 
 
 ```
-## Question 2 
+
+## Question 2
+
 ### 2.1 Distance to US border
 
 ```{r}
@@ -49,7 +51,7 @@ boundary_geom <- boundaries$geometry
 boundary_geom_union <- st_union(boundary_geom)
 boundaries_ml <-st_cast(boundary_geom_union, "MULTILINESTRING")
 US_Boundary_Dist <- cities_map|>
-  select(city, geometry, state_name) |>
+  select(city, geometry, state_name,population) |>
   mutate(Distance = (st_distance(cities_map,boundaries_ml)),
          Distance = set_units(Distance, "km")) |>
   arrange(-Distance) |>
@@ -78,7 +80,9 @@ state_dist <- cities_map |>
   set_caption("Top 5 Cities Farthest From State Borders")
   
 ```
-### 2.3: Distance to Mexico 
+
+### 2.3: Distance to Mexico
+
 ```{r}
 mex_bound <- country_boundaries |>
   filter(name == "Mexico") |>
@@ -95,6 +99,7 @@ flextable(mex_distance) |>
   
 
 ```
+
 ### 2.4: Distance From Canada
 
 ```{r}
@@ -111,7 +116,7 @@ flextable(can_distance) |>
   set_caption("Cities Farthest From Canada in the US")
 ```
 
-## Question 3 
+## Question 3
 
 ### 3.1: 10 Largest Cities
 
@@ -122,41 +127,48 @@ Largest_Cities <- cities_map |>
   slice_head(n = 10)
 ggplot()  +
   geom_sf(data = state_bound_ml) +
-  geom_sf(data = Largest_Cities, aes(size = population))
+  geom_sf(data = Largest_Cities, aes(size = population)) +
+  geom_label_repel(data = Largest_Cities, aes(label = city, geometry = geometry), stat = "sf_coordinates", size = 2)
 ```
 
-### 3.2 Cities Farthest From the Border 
+### 3.2 Cities Farthest From the Border
 
 ```{r}
 state_dist_full <- cities_map |>
-  select(state_name, city, geometry) |>
+  select(state_name, city, geometry, population) |>
   mutate(Distance = (st_distance(cities_map,state_bound_ml)),
          Distance = set_units(Distance, "km"))
 City_dist <- US_Boundary_Dist |>
   drop_units()
 ggplot() +
-  geom_sf(data = state_dist_full, size = 0.000001, alpha = 0.2) +
-  geom_sf(data = City_dist, size = 3) +
-  geom_sf(fill = "red")
+  geom_sf(data = state_dist_full, size = 0.000001, alpha = 0.1) +
+  geom_sf(data = City_dist, aes(fill = Distance), size = 3) +
+  scale_fill_gradient(low = "blue", high = "red") + 
+  geom_label_repel(data = City_dist, aes(label = city, geometry = geometry), stat = "sf_coordinates", size = 2 )
   
     
 
 ```
 
 ### 3.3 City Distance From State Border
+
 ```{r}
 state_dist_drop <- state_dist |>
   drop_units()
+state_full_drop <- state_dist_full |>
+  drop_units()
 ggplot() + 
-  geom_sf(data = state_dist_full, size = 0.0001, alpha = 0.2) +
-  geom_sf(data = state_bound_ml) +
-  geom_sf(data = state_dist_drop, size = 3, alpha = 1) +
-  geom_sf(fill = "red")
-  
+  geom_sf(data = state_full_drop, size = 0.0001, alpha = 0.1) +
+    geom_sf(data = state_bound_ml) + 
+  geom_sf(data = state_dist_drop, aes(fill = Distance), size = 3, alpha = 1)  +
+  scale_fill_gradient(low = "blue", high = "red") +
+  geom_label_repel(data = state_dist_drop, aes(label= city, geometry = geometry), stat = "sf_coordinates", size = 2)
+
+
+
 ```
 
-
-### 3.4 Equal Distance Highlight 
+### 3.4 Equal Distance Highlight
 
 ```{r}
 mex_distance_full <- cities_map |>
@@ -180,9 +192,55 @@ pop_city <- eq_dist|>
   slice_head(n = 5) |>
   drop_units()
 ggplot() +
-  geom_sf(data = eq_dist, aes(fill = obj_dist), size = 0.1, alpha = 0.5) +
-  scale_color_gradient(low = "blue", high = "red") +
-  gghighlight(obj_dist <= 100) 
+  geom_sf(data = eq_dist, aes(fill = obj_dist), size = 0.1, alpha = 0.5, size = 3 )+ 
+  scale_fill_gradient(low = "blue", high = "red")
+  gghighlight(obj_dist <= 100) + 
+  geom_label_repel(data = pop_city, aes(label = city, geometry = geometry), stat = "sf_coordinates", size = 2)
+
   
+```
+
+### Question 4 
+
+## 4.1
+```{r}
+border_zone <- cities_map|>
+  select(city, geometry, state_name,population) |>
+  mutate(Distance = (st_distance(cities_map,boundaries_ml)),
+         Distance = set_units(Distance, "km")) |>
+  drop_units() |>
+  filter(Distance < 160)|> 
+  mutate(people_100 = sum(population, na.rm = T)) |>
+  glimpse()
+
+print(sum(state_dist_full$population, na.rm = T))
+```
+
+- From the code, there is around 214242416 people that live within 100 miles of the border 
+- It seems that this is around 2/3 of the people in the United States, which matches the ACLU document
+
+### 4.2
+```{r}
+border_pop <- border_zone |>
+  arrange(-population) |>
+  slice_head(n = 10)
+ggplot() +
+  geom_sf(data = border_zone, size= 0.5, aes(fill = Distance), alpha = 0.2) +
+  scale_fill_gradient(low = "orange", high = "darkred") +
+  geom_label_repel(data = border_pop, aes(label = city, geometry=geometry), stat = "sf_coordinates", size = 2)
+```
+
+## 4.3 
+```{r}
+Pop_Danger_Zone <- border_zone |>
+  arrange(-population) |>
+  group_by(state_name) |>
+  slice_head(n = 1) |>
+  ungroup()
+ggplot() +
+    geom_sf(data = border_zone, size= 0.5, aes(fill = Distance), alpha = 0.2) +
+  scale_fill_gradient(low = "orange", high = "darkred") +
+  geom_label_repel(data = Pop_Danger_Zone, aes(label = city, geometry=geometry), stat = "sf_coordinates", size = 2)
+
 ```
 
